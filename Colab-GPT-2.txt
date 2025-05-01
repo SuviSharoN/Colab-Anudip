@@ -1,0 +1,240 @@
+#@title Fine-tune GPT-2 on Sample Movie Script Text
+# Install necessary libraries
+!pip install -q transformers datasets torch accelerate
+
+import torch
+from datasets import Dataset
+from transformers import (
+    AutoTokenizer,
+    AutoModelForCausalLM,
+    Trainer,
+    TrainingArguments,
+    pipeline
+)
+
+# 1. Define your Train and Test Text (Simple Movie Script Snippets)
+# REPLACE THESE WITH YOUR ACTUAL (but keep short for this example) SCRIPT SNIPPETS
+train_text = """
+INT. COFFEE SHOP - DAY
+
+Sunlight streams through the window. ANNA (30s), focused, types on her laptop.
+The door CHIMES. LIAM (30s), slightly nervous, walks in. He spots Anna.
+
+LIAM
+(Smiling)
+There you are. Thought I was late.
+
+ANNA
+(Looks up, warm smile)
+Fashionably punctual. Coffee?
+
+LIAM
+Please. Black. Long night.
+
+Anna gestures to the barista. Liam sits opposite her.
+
+LIAM (CONT'D)
+So, the pitch... did they like it?
+
+ANNA
+They loved the concept. Asked for a rewrite on the third act. Standard stuff.
+
+LIAM
+Standard but draining. You okay?
+
+ANNA
+Just tired. This script is my baby, you know? Want it to be perfect.
+
+LIAM
+It will be. You always make it work. Remember "Sunset Boulevard"? They hated the ending until you fixed it.
+
+ANNA
+(Chuckles)
+Don't remind me. That took weeks. Anyway, how's your project? The space opera?
+
+LIAM
+Moving slow. World-building is harder than I thought. Trying to make physics make sense is... challenging.
+
+ANNA
+Tell me about it.
+"""
+
+test_text = """
+EXT. ALLEYWAY - NIGHT
+
+Rain slicks the pavement. Steam rises from vents. MARK (40s), face obscured by shadow, waits.
+Footsteps echo. SARAH (30s), cautious, emerges from the darkness.
+
+SARAH
+You came. I wasn't sure.
+
+MARK
+You said it was important. Spill it.
+
+SARAH
+It's about the shipment. It's not what they told us. It's... something else. Dangerous.
+
+MARK
+(Steps closer)
+How dangerous?
+
+SARAH
+People will get hurt, Mark. We need to stop it.
+
+MARK
+"We"? Since when is there a "we"? You disappeared for six months.
+
+SARAH
+I had to. They were watching me. Now I need your help. You're the only one I can trust.
+
+MARK
+Trust is earned, Sarah. Why now?
+
+SARAH
+Because I have proof. A ledger. It details everything.
+(She pulls out a small, worn notebook)
+
+Mark hesitates, then takes it. He flips through a few pages, eyes widening slightly.
+
+MARK
+Where did you get this?
+
+SARAH
+Doesn't matter. Are you in?
+"""
+
+# 2. Prepare Data for Hugging Face Trainer
+# Convert strings to Hugging Face Dataset object
+train_dataset = Dataset.from_dict({"text": [train_text]})
+test_dataset = Dataset.from_dict({"text": [test_text]})
+
+# 3. Load Tokenizer and Model
+model_name = "gpt2" # Using the base GPT-2 model
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+model = AutoModelForCausalLM.from_pretrained(model_name)
+
+# --- Tokenizer Configuration ---
+# GPT-2 doesn't have a default pad token, set it to eos_token
+if tokenizer.pad_token is None:
+    tokenizer.pad_token = tokenizer.eos_token
+
+# --- Tokenization Function ---
+# This function tokenizes the text and prepares it for language modeling
+# It groups texts into blocks of a fixed size (block_size)
+block_size = 128 # Max sequence length for the model chunks
+
+def tokenize_and_group_texts(examples):
+    # Tokenize all texts
+    tokenized_inputs = tokenizer(
+        examples["text"],
+        truncation=False, # Don't truncate yet, handle it manually by chunking
+        padding=False,    # Don't pad yet
+    )
+
+    # Concatenate all tokens from all examples
+    concatenated_examples = {k: sum(tokenized_inputs[k], []) for k in tokenized_inputs.keys()}
+    total_length = len(concatenated_examples[list(tokenized_inputs.keys())[0]])
+
+    # Drop the remainder to ensure chunks are exactly block_size
+    if total_length >= block_size:
+        total_length = (total_length // block_size) * block_size
+    else:
+        # Handle cases where total text is less than block_size (won't create blocks)
+         print(f"Warning: Total token length ({total_length}) is less than block_size ({block_size}). Might result in empty dataset.")
+         total_length = 0 # Set to 0 if too short to form a block
+
+    # Split into chunks of block_size
+    result = {
+        k: [t[i : i + block_size] for i in range(0, total_length, block_size)]
+        for k, t in concatenated_examples.items()
+    }
+
+    # For language modeling, the labels are the inputs shifted
+    result["labels"] = result["input_ids"].copy()
+    return result
+
+# Apply the tokenization and grouping
+tokenized_train_dataset = train_dataset.map(
+    tokenize_and_group_texts,
+    batched=True, # Process multiple texts at once
+    remove_columns=["text"] # Remove original text column
+)
+tokenized_test_dataset = test_dataset.map(
+    tokenize_and_group_texts,
+    batched=True,
+    remove_columns=["text"]
+)
+
+# Check if datasets became empty after chunking (if input text was too short)
+if not tokenized_train_dataset:
+    raise ValueError("Training data is too short to create any chunks of block_size. Please provide longer train_text.")
+if not tokenized_test_dataset:
+     print("Warning: Test data is too short to create any chunks of block_size. Evaluation might be skipped or inaccurate.")
+     # Create an empty structure for eval if needed by Trainer, or handle appropriately
+     # For simplicity here, we proceed, but Trainer might complain if eval set is empty.
+
+
+# 4. Define Training Arguments
+training_args = TrainingArguments(
+    output_dir="./gpt2-finetuned-movie", # Directory to save the model
+    overwrite_output_dir=True,
+    num_train_epochs=1,              # Number of training passes (KEEP LOW FOR DEMO)
+    per_device_train_batch_size=1,   # Batch size for training (KEEP LOW FOR DEMO/MEMORY)
+    per_device_eval_batch_size=1,    # Batch size for evaluation
+    save_steps=500,                  # How often to save a checkpoint
+    save_total_limit=2,              # Max number of checkpoints to keep
+    logging_steps=10,                # How often to log training progress
+    evaluation_strategy="epoch",     # Evaluate at the end of each epoch
+    fp16=torch.cuda.is_available(),
+    report_to="none",# Use mixed precision if GPU is available (faster)
+)
+
+# 5. Create Trainer Instance
+trainer = Trainer(
+    model=model,
+    args=training_args,
+    train_dataset=tokenized_train_dataset,
+    eval_dataset=tokenized_test_dataset if tokenized_test_dataset else None, # Pass eval dataset if not empty
+    tokenizer=tokenizer,
+    # Data collator will be handled automatically for causal LM if labels are present
+)
+
+# 6. Start Fine-Tuning
+print("Starting fine-tuning...")
+trainer.train()
+print("Fine-tuning finished.")
+
+# 7. Evaluate the Model (Optional)
+if tokenized_test_dataset:
+    print("\nEvaluating model...")
+    eval_results = trainer.evaluate()
+    print(f"Perplexity: {torch.exp(torch.tensor(eval_results['eval_loss'])):.2f}") # Calculate perplexity
+else:
+    print("\nSkipping evaluation as test dataset was too short.")
+
+# 8. Generate Text with the Fine-Tuned Model
+print("\nGenerating text with fine-tuned model:")
+# Use the model directly from the trainer object
+generator = pipeline(
+    'text-generation',
+    model=trainer.model, # Use the fine-tuned model in memory
+    tokenizer=tokenizer,
+    device=0 if torch.cuda.is_available() else -1 # Use GPU if available
+)
+
+# Provide a prompt similar to the training data format
+prompt = "INT. ABANDONED WAREHOUSE - NIGHT\n\nA single lightbulb swings overhead. MAX stands alone."
+output = generator(prompt, max_length=100, num_return_sequences=1)
+
+print("\nPrompt:")
+print(prompt)
+print("\nGenerated Output:")
+print(output[0]['generated_text'])
+
+# Optional: Save the final model explicitly
+# final_model_path = "./gpt2-finetuned-movie-final"
+# trainer.save_model(final_model_path)
+# print(f"\nFinal model saved to {final_model_path}")
+# You could then load it later using:
+# generator = pipeline('text-generation', model=final_model_path, tokenizer=tokenizer)
+
