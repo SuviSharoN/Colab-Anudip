@@ -1,0 +1,302 @@
+!pip install pandas matplotlib seaborn numpy
+
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+import numpy as np
+import time
+from IPython.display import display
+
+# Configuration
+N_RESPONSES_PER_PROMPT = 3  # Number of mock responses to generate per prompt
+TOPICS = ["climate change", "artificial intelligence", "space exploration"]
+
+# Define prompt types
+DESCRIPTIVE_PROMPTS = {
+    "climate change": """Write a thoughtful piece about climate change. 
+    Consider its impacts on different ecosystems, how it affects communities worldwide, 
+    and the emotional toll it takes on people who witness environmental degradation. 
+    Provide examples of both challenges and potential solutions.""",
+    
+    "artificial intelligence": """Compose an insightful discussion about artificial intelligence. 
+    Explore its philosophical implications, how it's changing human creativity and productivity, 
+    and the ethical dilemmas it presents. Include contrasting viewpoints and real-world examples 
+    of both beneficial and concerning applications.""",
+    
+    "space exploration": """Craft a compelling narrative about space exploration. 
+    Describe the wonder and curiosity that drives humanity to explore the cosmos, 
+    the technological marvels that make it possible, and the potential future scenarios 
+    of interplanetary civilization. Weave in historical context and visionary possibilities."""
+}
+
+DIRECTIONAL_PROMPTS = {
+    "climate change": """List 5 key impacts of climate change, 3 major challenges in addressing it, 
+    and 2 promising solutions. Use bullet points.""",
+    
+    "artificial intelligence": """Provide 4 benefits of AI, 3 risks, and 2 recommendations 
+    for responsible development. Format as a numbered list.""",
+    
+    "space exploration": """Give 3 reasons for space exploration, 2 technological requirements, 
+    and 4 potential benefits. Present in a structured outline."""
+}
+
+# Pre-generated mock responses
+MOCK_RESPONSES = {
+    "climate change": {
+        "descriptive": [
+            """Climate change represents one of the most significant challenges facing our planet today. Rising global temperatures are causing polar ice caps to melt, leading to rising sea levels that threaten coastal communities. Ecosystems around the world are being disrupted, with species struggling to adapt to rapidly changing conditions. The emotional impact on communities that lose their homes to extreme weather events or see their traditional ways of life disappearing is profound. However, there is hope - renewable energy technologies and international cooperation offer pathways to mitigate these effects.""",
+            """The complex issue of climate change manifests in various ways across different regions. In some areas, prolonged droughts devastate agriculture, while others experience more intense hurricanes and flooding. The Arctic is warming at twice the global average rate, with dire consequences for indigenous populations and wildlife. On a positive note, many cities are adopting green infrastructure, and individuals are making more sustainable choices in their daily lives. Collective action at all levels will be crucial to address this global challenge.""",
+            """Witnessing the effects of climate change firsthand can be emotionally overwhelming. Farmers watching their crops fail season after season, island nations facing existential threats from rising seas, and forest rangers seeing ancient ecosystems burn - all tell the human story behind the statistics. Yet innovative solutions are emerging, from carbon capture technologies to regenerative agriculture practices that restore soil health. The challenge is immense but not insurmountable if we act decisively."""
+        ],
+        "directional": [
+            """1. Key impacts:
+- Rising global temperatures
+- More extreme weather events
+- Sea level rise
+- Ocean acidification
+- Biodiversity loss
+
+2. Major challenges:
+- Political resistance to change
+- Economic costs of transition
+- Global coordination difficulties
+
+3. Promising solutions:
+- Renewable energy adoption
+- Carbon pricing mechanisms""",
+            """Five key impacts:
+• Increased heat waves
+• Changing precipitation patterns
+• More intense storms
+• Shifting habitats for species
+• Threats to food security
+
+Three challenges:
+1. Fossil fuel dependence
+2. Infrastructure adaptation
+3. Public awareness gaps
+
+Two solutions:
+1. Reforestation programs
+2. Energy efficiency standards""",
+            """- Impacts:
+  1. Melting glaciers
+  2. Coral reef bleaching
+  3. Permafrost thaw
+  4. Increased wildfires
+  5. Water scarcity
+
+- Challenges:
+  * Economic inequality in impacts
+  * Short-term thinking
+  * Technological limitations
+
+- Solutions:
+  A) International climate agreements
+  B) Green technology investment"""
+        ]
+    },
+    "artificial intelligence": {
+        "descriptive": [
+            """Artificial intelligence is transforming our world in profound and sometimes unsettling ways. On one hand, AI systems can diagnose diseases with remarkable accuracy and optimize energy use in smart cities. On the other, they raise troubling questions about job displacement, algorithmic bias, and the very nature of human creativity. The philosophical implications are staggering - as we create machines that can learn and make decisions, we're forced to reconsider what makes human intelligence unique. The ethical dilemmas multiply as AI systems are deployed in sensitive areas like criminal justice and military applications.""",
+            """The rapid advancement of AI presents a paradox. While it enhances productivity through automation and data analysis, it also threatens to disrupt labor markets and concentrate power in the hands of those who control these technologies. Creative fields once considered safe from automation are now seeing AI generate art, music, and literature. Meanwhile, concerns about privacy and surveillance grow as facial recognition becomes more sophisticated. Striking the right balance between innovation and regulation will be one of society's greatest challenges in the coming decades.""",
+            """AI's impact on human cognition and social interaction deserves careful consideration. As we delegate more decisions to algorithms, from what news we see to potential romantic matches, we risk losing important human capacities for judgment and serendipity. The environmental costs of training large AI models are also significant. Yet when used responsibly, AI can help solve complex problems like climate modeling and disease research that benefit all humanity. The path forward requires thoughtful dialogue between technologists, ethicists, and policymakers."""
+        ],
+        "directional": [
+            """Benefits:
+1. Automation of repetitive tasks
+2. Enhanced data analysis capabilities
+3. Improved medical diagnostics
+4. Personalized education tools
+
+Risks:
+1. Job displacement
+2. Algorithmic bias
+3. Privacy concerns
+
+Recommendations:
+1. Develop ethical guidelines for AI development
+2. Invest in retraining programs for affected workers""",
+            """Four benefits:
+- Faster scientific research
+- Improved accessibility tools
+- Optimized logistics networks
+- Enhanced creative tools
+
+Three risks:
+* Security vulnerabilities
+* Over-reliance on AI systems
+* Potential for misuse
+
+Two recommendations:
+A) Regular algorithm audits
+B) Public education initiatives""",
+            """1. Benefits:
+   a) Predictive maintenance in industry
+   b) Language translation services
+   c) Fraud detection systems
+   d) Agricultural optimization
+
+2. Risks:
+   i) Deepfake technology misuse
+   ii) Autonomous weapons development
+   iii) Social manipulation
+
+3. Recommendations:
+   - International cooperation on standards
+   - Transparency requirements"""
+        ]
+    },
+    "space exploration": {
+        "descriptive": [
+            """The human drive to explore space speaks to something fundamental in our nature - the curiosity that has propelled our species for millennia. Modern space exploration combines cutting-edge technology with age-old wonder, from the breathtaking images of distant galaxies captured by the James Webb telescope to the ambitious plans for Martian colonies. These endeavors push the boundaries of human achievement while raising profound questions about our place in the universe. The technological spin-offs from space research have transformed life on Earth, even as the cosmic perspective reminds us of our planet's fragility and the need for global cooperation.""",
+            """Watching a rocket launch never fails to inspire awe at what humanity can accomplish when we work together toward ambitious goals. Space exploration represents both our highest aspirations and most practical needs - the search for knowledge about our cosmic origins alongside the very real possibility of asteroid mining and off-world habitats. The International Space Station stands as a testament to what nations can achieve through collaboration, even as private companies bring new energy and ideas to space technology. As we look toward establishing a permanent presence on the Moon and eventually Mars, we're writing the next chapter in human history.""",
+            """The romance of space exploration continues to capture imaginations worldwide, from children dreaming of becoming astronauts to scientists unraveling the mysteries of black holes. Each mission expands our understanding of the universe while developing technologies that benefit life on Earth - from water purification systems to advanced materials. The challenges are immense - cosmic radiation, microgravity effects on the human body, the psychological toll of long-duration spaceflight - but so are the potential rewards. As we develop the capability to search for life elsewhere in our solar system and beyond, we may be on the verge of discoveries that change how we see ourselves in the cosmos."""
+        ],
+        "directional": [
+            """Reasons for exploration:
+1. Scientific discovery
+2. Technological advancement
+3. Survival of the species
+
+Technological requirements:
+- Advanced propulsion systems
+- Life support systems
+
+Potential benefits:
+• Asteroid mining resources
+• Spin-off technologies
+• Planetary defense
+• Inspiration for STEM education""",
+            """Three reasons:
+1. Search for extraterrestrial life
+2. Test human limits
+3. Economic opportunities
+
+Two requirements:
+A) Radiation shielding
+B) Sustainable habitats
+
+Four benefits:
+i) Global cooperation
+ii) Climate monitoring
+iii) Materials science advances
+iv) Cultural enrichment""",
+            """- Reasons:
+  1. Understanding cosmic origins
+  2. Developing space-based manufacturing
+  3. Ensuring species resilience
+
+- Requirements:
+  * Reliable launch systems
+  * Closed-loop ecosystems
+
+- Benefits:
+  a) Solar energy collection
+  b) Asteroid deflection capability
+  c) Medical research in microgravity
+  d) Expansion of economic sphere"""
+        ]
+    }
+}
+
+def generate_mock_responses(prompt, topic, prompt_type, n=N_RESPONSES_PER_PROMPT):
+    """Generate mock responses for a given prompt"""
+    responses = []
+    for i in range(n):
+        # Add some variability to the mock responses
+        response = MOCK_RESPONSES[topic][prompt_type][i]
+        time.sleep(0.2)  # Simulate API delay
+        responses.append(response)
+    return responses
+
+def run_experiment():
+    """Run the full experiment using mock responses"""
+    results = []
+    
+    for topic in TOPICS:
+        print(f"\nGenerating mock responses for topic: {topic}")
+        
+        # Generate responses for descriptive prompt
+        desc_prompt = DESCRIPTIVE_PROMPTS[topic]
+        desc_responses = generate_mock_responses(desc_prompt, topic, "descriptive")
+        
+        # Generate responses for directional prompt
+        dir_prompt = DIRECTIONAL_PROMPTS[topic]
+        dir_responses = generate_mock_responses(dir_prompt, topic, "directional")
+        
+        # Store results
+        for i, (desc, dir_) in enumerate(zip(desc_responses, dir_responses)):
+            results.append({
+                "topic": topic,
+                "prompt_type": "descriptive",
+                "prompt_text": desc_prompt,
+                "response": desc,
+                "response_num": i+1
+            })
+            results.append({
+                "topic": topic,
+                "prompt_type": "directional",
+                "prompt_text": dir_prompt,
+                "response": dir_,
+                "response_num": i+1
+            })
+    
+    return pd.DataFrame(results)
+
+def analyze_responses(df):
+    """Analyze the generated responses"""
+    # Calculate basic statistics
+    df['response_length'] = df['response'].apply(lambda x: len(str(x).split()))
+    df['response_chars'] = df['response'].apply(lambda x: len(str(x)))
+    
+    # Print summary statistics
+    print("\n=== Response Length Statistics ===")
+    print(df.groupby(['topic', 'prompt_type'])[['response_length', 'response_chars']].describe())
+    
+    # Visualization
+    plt.figure(figsize=(14, 6))
+    
+    plt.subplot(1, 2, 1)
+    sns.boxplot(x='topic', y='response_length', hue='prompt_type', data=df)
+    plt.title('Word Count by Topic and Prompt Type')
+    plt.ylabel('Number of Words')
+    plt.xlabel('')
+    plt.legend(title='Prompt Type')
+    
+    plt.subplot(1, 2, 2)
+    sns.barplot(x='topic', y='response_length', hue='prompt_type', 
+                data=df, estimator=np.mean, errorbar=None)
+    plt.title('Average Response Length')
+    plt.ylabel('Mean Word Count')
+    plt.xlabel('')
+    plt.legend(title='Prompt Type')
+    
+    plt.tight_layout()
+    plt.show()
+    
+    # Qualitative analysis
+    print("\n=== Example Responses ===")
+    sample = df.groupby(['topic', 'prompt_type']).first().reset_index()
+    for _, row in sample.iterrows():
+        print(f"\nTopic: {row['topic'].title()}")
+        print(f"Prompt Type: {row['prompt_type'].title()}")
+        print(f"\nPrompt:\n{row['prompt_text']}")
+        print(f"\nResponse ({len(row['response'].split())} words):")
+        print(row['response'])
+        print("\n" + "="*80 + "\n")
+
+# Run the experiment
+print("Starting mock experiment...")
+results_df = run_experiment()
+
+# Analyze the results
+analyze_responses(results_df)
+
+# Save results
+results_df.to_csv('prompt_experiment_results_mock.csv', index=False)
+print("\nMock experiment results saved to 'prompt_experiment_results_mock.csv'")
+
+# Display sample of results
+print("\nSample of results:")
+display(results_df.head(6))
